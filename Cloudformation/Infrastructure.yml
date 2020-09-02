@@ -1,0 +1,498 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  DomainName:
+    Description: Domain name website (example.com)
+    Type: String
+    Default: achoudhary1.com
+  SiteName:
+    Description: >-
+      Name of your website (example). No www and .com Do not include the top-level domain. 
+    Type: String
+    Default: choudhary
+  GitHubUserName:
+    Description: Username for Github Account
+    Type: String
+    Default: achoudhary1
+  GitHubRepoName:
+    Description: Github Repository
+    Type: String
+    Default: hosting
+  GitHubProdBranchName:
+    Description: Name of the Branch
+    Type: String
+    Default: master
+  PriceClass:
+    Type: String
+    Description: The CloudFront distribution price class
+    Default: PriceClass_All
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
+Mappings:
+  RegionMap:
+    us-east-1:
+      S3hostedzoneID: Z3AQBSTGFYJSTF
+      websiteendpoint: s3-website-us-east-1.amazonaws.com
+    us-west-1:
+      S3hostedzoneID: Z2F56UZL2M1ACD
+      websiteendpoint: s3-website-us-west-1.amazonaws.com
+    us-west-2:
+      S3hostedzoneID: Z3BJ6K6RIION7M
+      websiteendpoint: s3-website-us-west-2.amazonaws.com
+    eu-west-1:
+      S3hostedzoneID: Z1BKCTXD74EZPE
+      websiteendpoint: s3-website-eu-west-1.amazonaws.com
+    ap-southeast-1:
+      S3hostedzoneID: Z3O0J2DXBE1FTB
+      websiteendpoint: s3-website-ap-southeast-1.amazonaws.com
+    ap-southeast-2:
+      S3hostedzoneID: Z1WCIGYICN2BYD
+      websiteendpoint: s3-website-ap-southeast-2.amazonaws.com
+    ap-northeast-1:
+      S3hostedzoneID: Z2M4EHUR26P7ZW
+      websiteendpoint: s3-website-ap-northeast-1.amazonaws.com
+    sa-east-1:
+      S3hostedzoneID: Z31GFT0UA1I2HV
+      websiteendpoint: s3-website-sa-east-1.amazonaws.com
+Resources:
+  Cert:
+    Type: 'AWS::CertificateManager::Certificate'
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          ValidationDomain: !Ref DomainName
+      ValidationMethod: DNS
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: d5d56b92-b409-4e97-a611-78cee653c1aa
+  RootBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref DomainName
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: 404.html
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 3475065b-2553-4177-9d77-a8020532a2b2
+  WWWBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub 
+        - 'www.${Domain}'
+        - Domain: !Ref DomainName
+      AccessControl: BucketOwnerFullControl
+      WebsiteConfiguration:
+        RedirectAllRequestsTo:
+          HostName: !Ref RootBucket
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 73ba720e-b282-4193-a1b3-fd11b9d8bdfb
+  BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref WWWBucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref WWWBucket
+                - /*
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: f4559a47-2577-4321-a059-fec04e01112f
+  CloudFrontDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref DomainName
+        DefaultCacheBehavior:
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+          TargetOriginId: the-s3-bucket
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 300
+            ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCachingMinTTL: 300
+            ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - DomainName: !Join 
+              - ''
+              - - !Ref WWWBucket
+                - .s3.amazonaws.com
+            Id: the-s3-bucket
+            S3OriginConfig:
+              OriginAccessIdentity: !Join 
+                - ''
+                - - origin-access-identity/cloudfront/
+                  - !Ref CloudFrontOriginAccessIdentity
+        PriceClass: !Ref PriceClass
+        ViewerCertificate:
+          AcmCertificateArn: !Ref Cert
+          MinimumProtocolVersion: TLSv1
+          SslSupportMethod: sni-only
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 95fae582-90f1-4d11-9d0d-1d1dd42b6c09
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub 'CloudFront OAI for ${DomainName}'
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: caba36b2-1122-4285-a432-dc0a7dbf5618
+  ArtifactBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: Private
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: cf2dd83d-a9a2-4e9c-9559-3c95a83646ce
+  myDNS:
+    Type: 'AWS::Route53::RecordSetGroup'
+    Properties:
+      HostedZoneName: !Sub 
+        - '${Domain}.'
+        - Domain: !Ref DomainName
+      Comment: Zone apex alias.
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: A
+          AliasTarget:
+            HostedZoneId: !FindInMap 
+              - RegionMap
+              - !Ref 'AWS::Region'
+              - S3hostedzoneID
+            DNSName: !FindInMap 
+              - RegionMap
+              - !Ref 'AWS::Region'
+              - websiteendpoint
+        - Name: !Sub 
+            - 'www.${Domain}'
+            - Domain: !Ref DomainName
+          Type: CNAME
+          TTL: 900
+          ResourceRecords:
+            - !GetAtt CloudFrontDistribution.DomainName
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 2fa4e077-84d3-497c-8df6-2de2653b46a5
+  CodeBuildProd:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/ubuntu-base:14.04'
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: BUCKET_NAME
+            Value: !Ref RootBucket
+      Name: !Join 
+        - _
+        - - !Ref SiteName
+          - Root_Build
+      ServiceRole: !Ref CodeBuildRole
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: e62c033d-8e35-4952-ac98-a4f889a61070
+  CodeBuildRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 0d6d894c-e652-458c-819a-c271675dfb24
+  CodeBuildRolePolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: CodeBuildRolePolicy
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Resource:
+              - !Sub >-
+                arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+          - Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${ArtifactBucket}'
+              - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+              - !Sub 'arn:aws:s3:::${RootBucket}'
+              - !Sub 'arn:aws:s3:::${RootBucket}/*'
+            Action:
+              - 's3:*'
+      Roles:
+        - !Ref CodeBuildRole
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: abed5a0a-ac01-415a-b0d0-ca4f18224acb
+  CodePipelineProd:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      RoleArn: !GetAtt 
+        - CodePipelineRole
+        - Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: '1'
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: StaticSiteSource
+              Configuration:
+                Owner: !Ref GitHubUserName
+                Repo: !Ref GitHubRepoName
+                Branch: !Ref GitHubProdBranchName
+                OAuthToken: >-
+                  {{resolve:secretsmanager:GitHubCICD:SecretString:GitHubPersonalAccessToken}}
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: BuildRoot
+              InputArtifacts:
+                - Name: StaticSiteSource
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProd
+              RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: dbe143b9-febd-4897-94a0-160d432bed46
+  CodePipelineRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 499f462c-a79e-4391-aee6-86189241c9cf
+  CodePipelineRolePolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: CodePipelineRolePolicy
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:GetObject'
+              - 's3:GetObjectVersion'
+              - 's3:GetBucketVersioning'
+            Resource: '*'
+            Effect: Allow
+          - Action:
+              - 'secretsmanager:GetSecretValue'
+            Resource: '*'
+            Effect: Allow
+          - Action:
+              - 's3:PutObject'
+            Resource:
+              - !Sub 'arn:aws:s3:::${ArtifactBucket}'
+              - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+            Effect: Allow
+          - Action:
+              - 'codebuild:BatchGetBuilds'
+              - 'codebuild:StartBuild'
+            Resource: '*'
+            Effect: Allow
+      Roles:
+        - !Ref CodePipelineRole
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: a23bacb2-8902-4d27-94a9-e3c3a9b91e8e
+Outputs:
+  WebsiteURL:
+    Value: !GetAtt RootBucket.WebsiteURL
+    Description: URL for website hosted on S3
+  BucketName:
+    Value: !Ref RootBucket
+    Description: Name of S3 bucket to hold website content
+  FullDomain:
+    Value: !Ref DomainName
+    Description: DomainName
+Metadata:
+  'AWS::CloudFormation::Designer':
+    499f462c-a79e-4391-aee6-86189241c9cf:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 270
+        'y': 270
+      z: 1
+      embeds: []
+    a23bacb2-8902-4d27-94a9-e3c3a9b91e8e:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 270
+        'y': 420
+      z: 1
+      embeds: []
+      isassociatedwith:
+        - 499f462c-a79e-4391-aee6-86189241c9cf
+    0d6d894c-e652-458c-819a-c271675dfb24:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 270
+        'y': 30
+      z: 1
+      embeds: []
+    abed5a0a-ac01-415a-b0d0-ca4f18224acb:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 270
+        'y': 180
+      z: 1
+      embeds: []
+      isassociatedwith:
+        - 0d6d894c-e652-458c-819a-c271675dfb24
+    cf2dd83d-a9a2-4e9c-9559-3c95a83646ce:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 630
+        'y': 450
+      z: 1
+      embeds: []
+    3475065b-2553-4177-9d77-a8020532a2b2:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 480
+        'y': 70
+      z: 1
+      embeds: []
+    e62c033d-8e35-4952-ac98-a4f889a61070:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 630
+        'y': 150
+      z: 1
+      embeds: []
+    dbe143b9-febd-4897-94a0-160d432bed46:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 630
+        'y': 270
+      z: 1
+      embeds: []
+    73ba720e-b282-4193-a1b3-fd11b9d8bdfb:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 600
+        'y': 10
+      z: 1
+      embeds: []
+    2fa4e077-84d3-497c-8df6-2de2653b46a5:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 950
+        'y': 210
+      z: 1
+      embeds: []
+    caba36b2-1122-4285-a432-dc0a7dbf5618:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 790
+        'y': 260
+      z: 1
+      embeds: []
+    f4559a47-2577-4321-a059-fec04e01112f:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 780
+        'y': 60
+      z: 1
+      embeds: []
+      isassociatedwith:
+        - 73ba720e-b282-4193-a1b3-fd11b9d8bdfb
+    d5d56b92-b409-4e97-a611-78cee653c1aa:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 980
+        'y': 20
+      z: 1
+      embeds: []
+    95fae582-90f1-4d11-9d0d-1d1dd42b6c09:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 890
+        'y': 70
+      z: 1
+      embeds: []
